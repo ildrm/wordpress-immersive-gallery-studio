@@ -1,0 +1,1 @@
+.igs-template-justified .igs-stage{display:flex;flex-wrap:wrap;gap:var(--igs-gap)}.igs-template-justified .igs-item{height:var(--igs-h);flex:1 1 calc(var(--igs-h)*1.3);position:relative}.igs-template-justified .igs-item img{height:100%;object-fit:cover}

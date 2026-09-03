@@ -1,0 +1,1 @@
+.igs-template-carousel{background:var(--igs-bg);border-radius:calc(var(--igs-round) + 6px);overflow:hidden;min-height:520px;box-shadow:0 24px 80px #0002}.igs-template-carousel .igs-stage{display:flex;gap:var(--igs-gap);padding:50px;transition:transform .45s cubic-bezier(.2,.8,.2,1)}.igs-template-carousel .igs-item{min-width:min(76vw,680px);height:420px;position:relative}

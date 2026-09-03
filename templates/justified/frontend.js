@@ -1,0 +1,1 @@
+(()=>{'use strict';const init=g=>g.querySelectorAll('.igs-item').forEach(el=>{const w=+el.dataset.w||4,h=+el.dataset.h||3;el.style.flexGrow=String(w/h)});const boot=()=>document.querySelectorAll('.igs-template-justified').forEach(init);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot()})();
