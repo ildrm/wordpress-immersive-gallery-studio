@@ -1,1 +1,44 @@
-.igs-template-cinematic{background:var(--igs-bg);border-radius:calc(var(--igs-round) + 6px);overflow:hidden;min-height:520px;box-shadow:0 24px 80px #0002}.igs-template-cinematic .igs-stage{height:70vh;min-height:520px}.igs-template-cinematic .igs-item{position:absolute;inset:0;border-radius:0;opacity:0;transition:opacity 1.1s ease}.igs-template-cinematic .igs-item.is-active{opacity:1;z-index:1}.igs-template-cinematic .igs-item img{animation:igsKen 8s ease-out both}@keyframes igsKen{from{transform:scale(1)}to{transform:scale(1.08)}}
+.igs-template-cinematic {
+  background: var(--igs-bg);
+  border-radius: var(--igs-round);
+  overflow: hidden;
+  box-shadow: 0 24px 80px #0002;
+}
+.igs-template-cinematic .igs-stage {
+  display: grid;
+  gap: var(--igs-gap);
+  touch-action: pan-y;
+}
+.igs-template-cinematic .igs-item {
+  position: relative;
+  height: clamp(240px, 60vw, 640px);
+}
+.igs-template-cinematic.igs-enhanced .igs-stage {
+  display: block;
+  height: clamp(260px, 60vw, 640px);
+}
+.igs-template-cinematic.igs-enhanced .igs-item {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  border-radius: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.1s ease;
+}
+.igs-template-cinematic.igs-enhanced .igs-item.is-active {
+  opacity: 1;
+  z-index: 1;
+  pointer-events: auto;
+}
+.igs-template-cinematic .is-active img {
+  animation: igsKen 8s ease-out both;
+}
+@keyframes igsKen {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.08);
+  }
+}

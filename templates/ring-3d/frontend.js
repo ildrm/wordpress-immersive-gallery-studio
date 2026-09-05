@@ -1,1 +1,88 @@
-(()=>{'use strict';function init(g){if(g.dataset.igsTemplateReady)return;g.dataset.igsTemplateReady='1';const items=[...g.querySelectorAll('.igs-item')],stage=g.querySelector('.igs-stage'),s=window.IGS?.parseSettings(g)||{};if(!stage||!items.length)return;let rotation=0,velocity=0,down=false,lastX=0,lastT=0,moved=0,raf=0;const radius=Number(s.radius)||420;function layout(){items.forEach((el,i)=>{const a=(i/items.length)*Math.PI*2+rotation,x=Math.sin(a)*radius,z=Math.cos(a)*radius;el.style.transform=`translate3d(${x}px,0,${z}px) rotateY(${a+Math.PI}rad)`})}function tick(){if(!down&&!g.dataset.paused){rotation+=velocity;velocity*=Number(s.inertia)||.93;if(Math.abs(velocity)<.00002)velocity=0;layout()}raf=requestAnimationFrame(tick)}stage.addEventListener('pointerdown',e=>{down=true;lastX=e.clientX;lastT=performance.now();moved=0;stage.setPointerCapture(e.pointerId)});stage.addEventListener('pointermove',e=>{if(!down)return;const dx=e.clientX-lastX,now=performance.now(),dt=Math.max(8,now-lastT);moved+=Math.abs(dx);rotation+=dx*(Number(s.rotation_speed)||.006);velocity=(dx/dt)*.04;lastX=e.clientX;lastT=now;layout()});const stop=()=>{down=false;if(moved>8){g.dataset.dragged='1';window.IGS?.track(g,'interaction')}setTimeout(()=>delete g.dataset.dragged,80)};stage.addEventListener('pointerup',stop);stage.addEventListener('pointercancel',()=>{down=false});layout();tick();g._igsDestroy=()=>cancelAnimationFrame(raf)}const boot=()=>document.querySelectorAll('.igs-template-ring3d').forEach(init);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot()})();
+(() => {
+  "use strict";
+  const I = window.IGS;
+  I.registerTemplate("ring3d", (g) => {
+    const stage = g.querySelector(".igs-stage"),
+      settings = I.parseSettings(g);
+    let rotation = 0,
+      velocity = 0,
+      frame = 0,
+      lastTime = 0;
+    g.classList.add("igs-enhanced");
+    function layout() {
+      const list = I.items(g),
+        radius = Math.min(
+          settings.radius,
+          Math.max(80, (g.clientWidth - settings.card_width) / 2),
+        );
+      list.forEach((item, i) => {
+        const angle =
+          list.length > 1 ? (i / list.length) * Math.PI * 2 + rotation : 0;
+        item.style.transform = `translate3d(${Math.sin(angle) * radius}px,0,${(Math.cos(angle) - 1) * radius}px) rotateY(${angle}rad)`;
+      });
+      const index = list.length
+        ? ((Math.round(-rotation / ((Math.PI * 2) / list.length)) %
+            list.length) +
+            list.length) %
+          list.length
+        : 0;
+      I.activeItem(g, list[index]);
+      I.setCounter(g, index);
+      g.querySelectorAll(".igs-nav").forEach((button) => {
+        button.disabled = list.length < 2;
+      });
+    }
+    function tick(now) {
+      frame = 0;
+      if (document.hidden || g.dataset.paused || I.motion.matches) {
+        velocity = 0;
+        return;
+      }
+      const dt = Math.min(2, (now - (lastTime || now - 16.67)) / 16.67);
+      lastTime = now;
+      rotation += velocity * dt;
+      velocity *= Math.pow(settings.inertia, dt);
+      layout();
+      if (Math.abs(velocity) > 0.0001) frame = requestAnimationFrame(tick);
+    }
+    I.bindDrag(
+      g,
+      stage,
+      ({ delta }) => {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        rotation += delta * settings.rotation_speed;
+        velocity = I.motion.matches ? 0 : delta * settings.rotation_speed;
+        layout();
+      },
+      ({ cancelled }) => {
+        if (cancelled || I.motion.matches) velocity = 0;
+        if (velocity) {
+          lastTime = 0;
+          frame = requestAnimationFrame(tick);
+        }
+      },
+    );
+    I.navigation(g, (delta) => {
+      cancelAnimationFrame(frame);
+      velocity = 0;
+      const count = I.items(g).length;
+      if (count) rotation -= (delta * Math.PI * 2) / count;
+      layout();
+    });
+    I.listen(g, g, "igs:filter", () => {
+      cancelAnimationFrame(frame);
+      velocity = 0;
+      rotation = 0;
+      layout();
+    });
+    I.listen(g, g, "igs:motion", () => layout());
+    const resize = new ResizeObserver(layout);
+    resize.observe(g);
+    layout();
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+    };
+  });
+})();

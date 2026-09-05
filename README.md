@@ -2,23 +2,9 @@
 
 A self-contained WordPress gallery platform with a visual builder, ten presentation templates, protected galleries, albums, local Code-128 gallery barcodes, fullscreen viewing and interaction analytics.
 
-## Implementation roles used
+## Review responsibilities
 
-1. Product Owner / Product Manager — scope, priorities, acceptance criteria, gallery workflows.
-2. Product Researcher — competitive baseline and differentiation.
-3. WordPress Solution Architect — content model, hooks, capabilities, REST and lifecycle.
-4. Senior PHP Engineer — domain/application implementation, sanitization and rendering.
-5. Frontend Engineer — responsive templates, gesture input, viewer and runtime state.
-6. 3D Interaction Engineer — circular-ring, photo-book and exhibition interaction models.
-7. UI/UX Designer — visual builder, progressive controls and polished frontend presentation.
-8. Accessibility Specialist — keyboard access, focus treatment, reduced-motion handling and semantic controls.
-9. Application Security Engineer — capabilities, nonces, password hashing, signed access cookies, rate limiting and output escaping.
-10. Performance Engineer — lazy media, dependency-free runtime, conditional asset loading and reduced animation work.
-11. Media Engineer — WordPress attachment derivatives, intrinsic image metadata and responsive loading foundations.
-12. QA / Test Engineer — syntax, interaction/state, access control and release checks.
-13. Release / DevOps Engineer — deterministic plugin package and installable ZIP structure.
-14. SEO / Privacy Specialist — public WordPress URLs, privacy-preserving access/analytics foundations.
-15. Technical Writer — installation, usage and architecture notes.
+The code review uses product/workflow, WordPress architecture, PHP/backend, application security, privacy, frontend, 3D interaction, UI/UX, accessibility, media/algorithms, performance/concurrency, QA, and release/documentation responsibilities. The source checkout includes the findings, fixes, validation and deployment boundaries in `docs/REVIEW.md`.
 
 ## Ten templates
 
@@ -70,7 +56,7 @@ The 3D templates are intentionally self-contained and do not require a third-par
 1. Upload the plugin ZIP in **Plugins → Add New → Upload Plugin**.
 2. Activate **Immersive Gallery Studio**.
 3. Open **Gallery Studio → Create Gallery**.
-4. Add images, choose a template and tune its settings.
+4. Open the visual builder, add images, choose a template and tune its settings. Use **Open visual builder** in Access & Sharing to reveal the builder, including the collapsed Meta Boxes pane in WordPress 7.1.
 5. Configure access/sharing and publish.
 6. Use the gallery permalink or embed its shortcode.
 
@@ -78,9 +64,18 @@ The 3D templates are intentionally self-contained and do not require a third-par
 
 All administrative writes are protected by WordPress nonces and capability checks. Gallery settings are sanitized before persistence and frontend output is escaped. Protected gallery passwords are stored using `wp_hash_password()` and validated with `wp_check_password()`. Successful access creates a short-lived HMAC-signed HttpOnly cookie; the password itself is never sent in a URL or barcode. Failed attempts are rate-limited without persisting a raw IP address.
 
+Gallery access controls protect rendered gallery output. Original WordPress upload URLs remain public; private file delivery requires separate protected storage/server rules. Full-page caches and CDNs must exclude protected gallery/album pages and pages embedding them. Purge existing cached pages after upgrading. Viewers must enter gallery passwords again after the 1.0.2 cookie-format change.
+
+Analytics are aggregate event counters. MySQL/MariaDB named locks protect analytics and password-attempt updates from races. The plugin does not require third-party runtime JavaScript or CSS.
+
+## Development validation
+
+The source checkout includes `tests/README.md` with PHP integration, Chrome workflow and concurrent database checks. `python3 scripts/package.py` creates a deterministic installable ZIP in `dist/`, excluding development tools and tests. Version 1.0.2 was exercised with WordPress 6.6.2 and 7.1, MySQL 8.4 and PHP 8.5.8. Test coverage and deployment limits are recorded in the review report.
+
 ## Architecture
 
 - `immersive-gallery-studio.php` — bootstrap/lifecycle.
+- `src/class-igs-settings.php` — shared defaults, numeric bounds and module settings schemas.
 - `src/class-igs-plugin.php` — WordPress application layer, gallery orchestration, access, REST and barcode workflows.
 - `src/class-igs-template-registry.php` — discovers template manifests, exposes settings schemas, renders templates and conditionally enqueues their assets.
 - `src/class-igs-template-view.php` — escaped shared media/view primitives used by template renderers.

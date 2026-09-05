@@ -8,14 +8,15 @@ final class IGS_Template_View {
         $classes = trim( 'igs-item ' . sanitize_html_class( $extra_class ) );
         ob_start();
         ?>
-        <figure class="<?php echo esc_attr( $classes ); ?>" tabindex="0"
+        <figure class="<?php echo esc_attr( $classes ); ?>" <?php if ( ! empty( $settings['lightbox'] ) ) : ?>tabindex="0" role="button" aria-label="<?php echo esc_attr( sprintf( __( 'Open image: %s', 'immersive-gallery-studio' ), $item['alt'] ?: $item['title'] ) ); ?>"<?php endif; ?>
             data-index="<?php echo esc_attr( $index ); ?>"
             data-full="<?php echo esc_url( $item['full'] ); ?>"
             data-title="<?php echo esc_attr( $item['title'] ); ?>"
             data-caption="<?php echo esc_attr( $item['caption'] ); ?>"
             data-w="<?php echo esc_attr( $item['width'] ); ?>"
             data-h="<?php echo esc_attr( $item['height'] ); ?>">
-            <img loading="lazy" decoding="async" src="<?php echo esc_url( $item['src'] ); ?>" alt="<?php echo esc_attr( $item['alt'] ); ?>" draggable="false">
+            <img loading="lazy" decoding="async" src="<?php echo esc_url( $item['src'] ); ?>" alt="<?php echo esc_attr( $item['alt'] ); ?>" width="<?php echo esc_attr( $item['width'] ); ?>" height="<?php echo esc_attr( $item['height'] ); ?>" <?php if ( ! empty( $item['srcset'] ) ) : ?>srcset="<?php echo esc_attr( $item['srcset'] ); ?>" sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 800px"<?php endif; ?> draggable="false">
+            <?php if ( empty( $settings['lightbox'] ) && ! empty( $settings['download'] ) ) : ?><a class="igs-item-download" href="<?php echo esc_url( $item['full'] ); ?>" download><?php esc_html_e( 'Download', 'immersive-gallery-studio' ); ?></a><?php endif; ?>
             <?php if ( ! empty( $settings['captions'] ) && ( $item['title'] || $item['caption'] ) ) : ?>
                 <figcaption>
                     <b><?php echo esc_html( $item['title'] ); ?></b>

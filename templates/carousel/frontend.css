@@ -1,1 +1,21 @@
-.igs-template-carousel{background:var(--igs-bg);border-radius:calc(var(--igs-round) + 6px);overflow:hidden;min-height:520px;box-shadow:0 24px 80px #0002}.igs-template-carousel .igs-stage{display:flex;gap:var(--igs-gap);padding:50px;transition:transform .45s cubic-bezier(.2,.8,.2,1)}.igs-template-carousel .igs-item{min-width:min(76vw,680px);height:420px;position:relative}
+.igs-template-carousel {
+  background: var(--igs-bg);
+  border-radius: var(--igs-round);
+  overflow: hidden;
+  box-shadow: 0 24px 80px #0002;
+}
+.igs-template-carousel .igs-stage {
+  display: flex;
+  gap: var(--igs-gap);
+  padding: 24px;
+  transition: transform 0.45s ease;
+  touch-action: pan-y;
+}
+.igs-template-carousel .igs-item {
+  position: relative;
+  flex: 0 0 min(680px, calc(100% - 48px));
+  height: clamp(220px, 55vw, 420px);
+}
+.igs-template-carousel:not(.igs-enhanced) .igs-stage {
+  overflow-x: auto;
+}

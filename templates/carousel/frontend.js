@@ -1,1 +1,42 @@
-(()=>{'use strict';function init(g){if(g.dataset.igsTemplateReady)return;g.dataset.igsTemplateReady='1';const stage=g.querySelector('.igs-stage'),items=[...g.querySelectorAll('.igs-item')];if(!stage||!items.length)return;let i=0;const go=n=>{i=(n+items.length)%items.length;const first=items[0],gap=parseFloat(getComputedStyle(g).getPropertyValue('--igs-gap'))||14;stage.style.transform=`translateX(${-i*(first.getBoundingClientRect().width+gap)}px)`;window.IGS?.setCounter(g,i)};g.querySelector('.igs-next')?.addEventListener('click',()=>go(i+1));g.querySelector('.igs-prev')?.addEventListener('click',()=>go(i-1));go(0)}const boot=()=>document.querySelectorAll('.igs-template-carousel').forEach(init);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot()})();
+(() => {
+  "use strict";
+  const I = window.IGS;
+  I.registerTemplate("carousel", (g) => {
+    const stage = g.querySelector(".igs-stage");
+    let index = 0;
+    g.classList.add("igs-enhanced");
+    function render(delta = 0) {
+      const list = I.items(g);
+      index = list.length ? (index + delta + list.length) % list.length : 0;
+      const active = list[index];
+      stage.style.transform = active
+        ? `translateX(${-active.offsetLeft + 24}px)`
+        : "";
+      I.activeItem(g, active);
+      I.setCounter(g, index);
+      g.querySelectorAll(".igs-nav").forEach((button) => {
+        button.disabled = list.length < 2;
+      });
+    }
+    I.navigation(g, render);
+    I.bindDrag(g, stage, null, ({ dx, cancelled }) => {
+      if (!cancelled) render(dx < 0 ? 1 : -1);
+    });
+    I.listen(g, g, "igs:filter", () => {
+      index = 0;
+      render();
+    });
+    const resize = new ResizeObserver(() => render());
+    resize.observe(g);
+    const stop = I.autoplay(
+      g,
+      () => render(1),
+      I.parseSettings(g).autoplay_speed || 4500,
+    );
+    render();
+    return () => {
+      resize.disconnect();
+      stop();
+    };
+  });
+})();

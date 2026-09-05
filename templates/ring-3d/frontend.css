@@ -1,1 +1,31 @@
-.igs-template-ring3d{background:var(--igs-bg);border-radius:calc(var(--igs-round) + 6px);overflow:hidden;height:620px;box-shadow:0 24px 80px #0002;touch-action:none}.igs-template-ring3d .igs-stage{height:100%;perspective:1100px;transform-style:preserve-3d;display:grid;place-items:center}.igs-template-ring3d .igs-item{position:absolute;width:var(--igs-card);height:calc(var(--igs-card)*.68);transform-style:preserve-3d;backface-visibility:hidden;box-shadow:0 14px 38px #0008;will-change:transform}@media(max-width:600px){.igs-template-ring3d{height:520px}}
+.igs-template-ring3d {
+  background: var(--igs-bg);
+  border-radius: var(--igs-round);
+  overflow: hidden;
+  box-shadow: 0 24px 80px #0002;
+}
+.igs-template-ring3d .igs-stage {
+  display: grid;
+  gap: var(--igs-gap);
+  padding: 24px;
+}
+.igs-template-ring3d .igs-item {
+  position: relative;
+  min-height: 160px;
+}
+.igs-template-ring3d.igs-enhanced:not(.igs-reduced) .igs-stage {
+  height: clamp(320px, 60vw, 580px);
+  perspective: 1100px;
+  transform-style: preserve-3d;
+  display: grid;
+  place-items: center;
+  touch-action: pan-y;
+}
+.igs-template-ring3d.igs-enhanced:not(.igs-reduced) .igs-item {
+  position: absolute;
+  width: min(var(--igs-card), calc(100% - 80px));
+  height: var(--igs-card-h);
+  min-height: 0;
+  backface-visibility: hidden;
+  box-shadow: 0 14px 38px #0008;
+}

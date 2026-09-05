@@ -32,10 +32,21 @@ final class IGS_Template_Registry {
                 continue;
             }
 
-            $renderer = wp_normalize_path( (string) $manifest['renderer'] );
-            $template_root = wp_normalize_path( trailingslashit( dirname( $manifest_file ) ) );
+            $renderer_path = realpath( (string) $manifest['renderer'] );
+            $renderer = $renderer_path ? wp_normalize_path( $renderer_path ) : '';
+            $template_root = wp_normalize_path( trailingslashit( realpath( dirname( $manifest_file ) ) ) );
             if ( ! str_starts_with( $renderer, $template_root ) || ! is_file( $renderer ) ) {
                 continue;
+            }
+
+            $manifest['renderer'] = $renderer;
+            if ( ! empty( $manifest['settings'] ) ) {
+                $settings = realpath( (string) $manifest['settings'] );
+                if ( ! $settings || ! str_starts_with( wp_normalize_path( $settings ), $template_root ) ) continue;
+                $manifest['settings'] = $settings;
+            }
+            foreach ( array( 'css', 'js' ) as $asset ) {
+                if ( ! empty( $manifest[ $asset ] ) && basename( $manifest[ $asset ] ) !== $manifest[ $asset ] ) $manifest[ $asset ] = '';
             }
 
             $manifest['id'] = $id;

@@ -1,1 +1,80 @@
-(()=>{'use strict';function init(g){if(g.dataset.igsTemplateReady)return;g.dataset.igsTemplateReady='1';const items=[...g.querySelectorAll('.igs-item')],stage=g.querySelector('.igs-stage');if(!stage||!items.length)return;let page=0,drag=null;function render(progress=0){items.forEach((el,i)=>{let angle=i<page?-179:0;if(drag){if(drag.dir==='forward'&&i===page)angle=-progress*179;if(drag.dir==='backward'&&i===page-1)angle=-179+progress*179}const active=drag&&((drag.dir==='forward'&&i===page)||(drag.dir==='backward'&&i===page-1));el.style.zIndex=String(items.length-Math.abs(i-page)+(active?10:0));const curl=active?Math.sin(progress*Math.PI)*(drag.dir==='forward'?-3:3):0;el.style.transform=`translateY(-50%) rotateY(${angle}deg) skewY(${curl}deg)`;el.style.filter=active?`brightness(${1-Math.sin(progress*Math.PI)*.15})`:''});window.IGS?.setCounter(g,Math.max(0,Math.min(page,items.length)-1))}function go(n){page=Math.max(0,Math.min(items.length,n));drag=null;render()}g.querySelector('.igs-next')?.addEventListener('click',()=>go(page+1));g.querySelector('.igs-prev')?.addEventListener('click',()=>go(page-1));stage.addEventListener('pointerdown',e=>{drag={x:e.clientX,time:performance.now(),dir:null,p:0};stage.setPointerCapture(e.pointerId)});stage.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x;if(!drag.dir&&Math.abs(dx)>3)drag.dir=dx<0?'forward':'backward';if(drag.dir==='forward'&&page>=items.length)return;if(drag.dir==='backward'&&page<=0)return;drag.p=Math.max(0,Math.min(1,Math.abs(dx)/(stage.clientWidth*.45)));if(drag.p>.04)g.dataset.dragged='1';render(drag.p)});stage.addEventListener('pointerup',e=>{if(!drag)return;const elapsed=Math.max(1,performance.now()-drag.time),speed=Math.abs(e.clientX-drag.x)/elapsed,complete=(drag.p||0)>.5||speed>.7;if(complete){if(drag.dir==='forward'&&page<items.length)page++;if(drag.dir==='backward'&&page>0)page--}const interacted=(drag.p||0)>.04;drag=null;render();if(interacted)window.IGS?.track(g,'interaction');setTimeout(()=>delete g.dataset.dragged,80)});stage.addEventListener('pointercancel',()=>{drag=null;render();delete g.dataset.dragged});render()}const boot=()=>document.querySelectorAll('.igs-template-book3d').forEach(init);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot()})();
+(() => {
+  "use strict";
+  const I = window.IGS;
+  I.registerTemplate("book3d", (g) => {
+    const stage = g.querySelector(".igs-stage"),
+      settings = I.parseSettings(g);
+    let page = 0;
+    g.classList.add("igs-enhanced");
+    g.style.setProperty(
+      "--igs-turn-time",
+      `${150 + settings.page_stiffness * 450}ms`,
+    );
+    function render(dx = 0) {
+      const list = I.items(g);
+      page = Math.max(0, Math.min(page, list.length - 1));
+      const forward = dx < 0,
+        target = forward ? page : page - 1;
+      const allowed = forward ? page < list.length - 1 : page > 0;
+      const progress = allowed
+        ? Math.min(
+            1,
+            Math.abs(dx) /
+              Math.max(
+                1,
+                Math.min(settings.page_width, stage.clientWidth - 64),
+              ),
+          )
+        : 0;
+      list.forEach((item, i) => {
+        let angle = i < page ? -179 : 0;
+        if (i === target && progress)
+          angle = forward ? -179 * progress : -179 + 179 * progress;
+        item.style.transform = `translate(-50%, -50%) rotateY(${angle}deg)`;
+        item.style.zIndex = String(
+          i === target && progress ? list.length + 1 : list.length - i,
+        );
+        item.style.visibility = i < page - 1 ? "hidden" : "";
+      });
+      I.activeItem(g, list[page]);
+      I.setCounter(g, page);
+      g.querySelector(".igs-prev").disabled = page <= 0;
+      g.querySelector(".igs-next").disabled = page >= list.length - 1;
+    }
+    const go = (delta) => {
+      page += delta;
+      render();
+    };
+    I.navigation(g, go);
+    I.bindDrag(
+      g,
+      stage,
+      ({ dx }) => {
+        stage.classList.add("is-dragging");
+        render(dx);
+      },
+      ({ dx, velocity, cancelled }) => {
+        stage.classList.remove("is-dragging");
+        const width = Math.max(
+          1,
+          Math.min(settings.page_width, stage.clientWidth - 64),
+        );
+        if (
+          !cancelled &&
+          (Math.abs(dx) / width > 0.4 || Math.abs(velocity) > 0.7)
+        )
+          page += dx < 0 ? 1 : -1;
+        render();
+      },
+    );
+    I.listen(g, g, "igs:filter", () => {
+      page = 0;
+      render();
+    });
+    I.listen(g, g, "igs:motion", () => render());
+    const resize = new ResizeObserver(() => render());
+    resize.observe(g);
+    render();
+    return () => resize.disconnect();
+  });
+})();
