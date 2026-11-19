@@ -695,20 +695,12 @@ final class IGS_Plugin {
         wp_enqueue_style( 'igs-front' );
         $galleries = array_map( 'absint', (array) get_post_meta( $id, '_igs_album_galleries', true ) );
         if ( ! $galleries ) return '<div class="igs-notice">' . esc_html__( 'This album is empty.', 'immersive-gallery-studio' ) . '</div>';
-        $out = '<div class="igs-album">';
-        foreach ( $galleries as $gallery_id ) {
-            if ( ! $this->published_access( $gallery_id, 'igs_gallery' ) || ! $this->can_view( $gallery_id ) ) continue;
-            $cover = get_the_post_thumbnail_url( $gallery_id, 'large' );
-            if ( ! $cover ) {
-                $media = (array) get_post_meta( $gallery_id, '_igs_media_ids', true );
-                $cover = $media ? wp_get_attachment_image_url( (int) reset( $media ), 'large' ) : '';
-            }
-            if ( ! $this->content_access( $gallery_id ) ) $cover = '';
-            $out .= '<a class="igs-album-card" href="' . esc_url( get_permalink( $gallery_id ) ) . '">';
-            if ( $cover ) $out .= '<img loading="lazy" src="' . esc_url( $cover ) . '" alt="">';
-            $out .= '<strong>' . esc_html( get_the_title( $gallery_id ) ) . '</strong></a>';
-        }
-        return $out . '</div>';
+        require_once IGS_DIR . 'src/class-igs-album-cards.php';
+        return IGS_Album_Cards::render(
+            $galleries,
+            fn( int $gallery_id ): bool => $this->published_access( $gallery_id, 'igs_gallery' ) && $this->can_view( $gallery_id ),
+            fn( int $gallery_id ): bool => $this->content_access( $gallery_id )
+        );
     }
 
     public function gallery_columns( array $columns ): array {
