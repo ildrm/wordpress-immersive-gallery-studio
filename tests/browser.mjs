@@ -1,28 +1,36 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
-import { createRequire } from "node:module";
-const require = createRequire(
-  `${process.env.IGS_TEST_TOOLS || "/private/tmp/igs-review-tools"}/package.json`,
-);
-const { chromium } = require("playwright");
+import { chromium } from "playwright";
 const fixtures = JSON.parse(
   fs.readFileSync(`${os.tmpdir()}/igs-review-fixtures.json`, "utf8"),
 );
-const base = process.env.IGS_TEST_URL || "http://127.0.0.1:8876";
-const browser = await chromium.launch({ channel: "chrome", headless: true });
+const base = process.env.IGS_TEST_URL || "http://127.0.0.1:8878";
+const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
   viewport: { width: 1280, height: 1000 },
 });
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
+const trackingRequests = [];
+page.on("request", (request) => {
+  if (request.postData()?.includes("action=igs_track")) trackingRequests.push(request.url());
+});
 let checks = 0;
 const check = (condition, description) => {
   assert.ok(condition, description);
   checks++;
   console.log(`PASS: ${description}`);
 };
+async function openBuilder(id) {
+  await page.goto(`${base}/wp-admin/post.php?post=${id}&action=edit`);
+  await page.locator("#igs_builder").waitFor({ state: "attached" });
+  if (!(await page.locator("#igs_builder").isVisible())) {
+    await page.getByRole("button", { name: "Open visual builder", exact: true }).click();
+  }
+  await page.locator("#igs_builder").waitFor();
+}
 try {
   for (const [template, id] of Object.entries(fixtures.templates)) {
     await page.goto(`${base}/?post_type=igs_gallery&p=${id}`);
@@ -117,8 +125,12 @@ try {
     await page.setViewportSize({ width: 1280, height: 1000 });
     await page.waitForTimeout(650);
     if (["ring3d", "book3d", "story"].includes(template))
-      await g.screenshot({ path: `/private/tmp/igs-${template}.png` });
+      await g.screenshot({ path: `${os.tmpdir()}/igs-${template}.png` });
   }
+  await page.goto(`${base}/?post_type=igs_gallery&p=${fixtures.paged}`);
+  check((await page.locator(".igs-item").count()) === 40, "large gallery displays the first page");
+  await page.getByRole("link", { name: "Next images" }).click();
+  check((await page.locator(".igs-item").count()) === 1, "next link displays the remaining image");
   await page.goto(`${base}/?page_id=${fixtures.page}`);
   check(
     (await page.locator(".igs-gallery .igs-item").count()) === 3,
@@ -178,14 +190,8 @@ try {
   await page.locator("#user_pass").fill("igs-local-review-only");
   await page.locator("#wp-submit").click();
   await page.waitForURL(/wp-admin/);
-  await page.goto(
-    `${base}/wp-admin/post.php?post=${fixtures.templates.grid}&action=edit`,
-  );
-  if (!(await page.locator("#igs_builder").isVisible())) {
-    const pane = page.getByRole("button", { name: "Open visual builder", exact: true });
-    if (await pane.isVisible()) await pane.click();
-  }
-  await page.locator("#igs_builder").waitFor();
+  await page.addLocatorHandler(page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).first(), (close) => close.click());
+  await openBuilder(fixtures.templates.grid);
   const preview = page.frameLocator("#igs-preview iframe");
   await preview.locator(".igs-item").first().waitFor({ timeout: 20000 });
   check(
@@ -211,6 +217,38 @@ try {
       String(fixtures.media[1]),
     "builder supports keyboard-accessible ordering",
   );
+  if (fixtures.private_storage) {
+    await openBuilder(fixtures.locked);
+    await page.locator("#igs-private-input").setInputFiles({
+      name: "confidential.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=", "base64"),
+    });
+    await page.locator("#igs-private-status").filter({ hasText: "Update the gallery to include the uploaded images." }).waitFor();
+    const privateUrl = await page.locator(".igs-media-item img").last().getAttribute("src");
+    check(privateUrl.includes("igs_private_image="), "private upload uses a controlled URL");
+    const visitor = await browser.newContext();
+    try {
+      check((await visitor.request.get(privateUrl)).status() === 404, "anonymous visitors cannot retrieve a private upload");
+      const editorImage = await context.request.get(privateUrl);
+      check(editorImage.ok() && editorImage.headers()["cache-control"].includes("no-store"), "gallery editor receives the private image with no-store headers");
+      const saveResponse = page.waitForResponse((response) => response.url().includes("post.php") && response.request().method() === "POST");
+      const save = page.getByRole("button", { name: "Save", exact: true });
+      if (await save.count()) await save.click();
+      else await page.getByRole("button", { name: "Update", exact: true }).click();
+      await saveResponse;
+      check((await visitor.request.get(privateUrl)).status() === 404, "saving a protected gallery keeps its media locked");
+      const protectedPage = await visitor.newPage();
+      await protectedPage.goto(lockedUrl);
+      await protectedPage.locator(".igs-password input[type=password]").fill("review-pass");
+      await protectedPage.locator(".igs-password button").click();
+      await protectedPage.locator(".igs-gallery").waitFor();
+      check((await visitor.request.get(privateUrl)).ok(), "the gallery password also authorizes the selected private media");
+    } finally {
+      await visitor.close();
+    }
+  }
+  check(trackingRequests.length === 0, "opening and interacting with galleries sends no default tracking requests");
   check(
     errors.length === 0,
     `no uncaught browser errors: ${errors.join("; ")}`,

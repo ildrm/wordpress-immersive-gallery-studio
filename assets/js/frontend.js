@@ -26,7 +26,7 @@
       signal: g._igsAbort.signal,
     });
   function track(g, event) {
-    if (!window.IGSFront || g.closest("[data-igs-preview]")) return;
+    if (window.IGSFront?.trackingEnabled !== "1" || g.closest("[data-igs-preview]")) return;
     const now = Date.now(),
       last = g._igsEvents || (g._igsEvents = {});
     if (last[event] && now - last[event] < 1000) return;

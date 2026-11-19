@@ -15,6 +15,7 @@ const run = (...args) =>
     "tests/track-worker.php",
     ...args,
   ]);
+await run(id, "setup");
 const before = +(await run(id, "read")).stdout;
 const results = await Promise.all(Array.from({ length: 20 }, () => run(id)));
 assert.ok(results.every((result) => JSON.parse(result.stdout).success));

@@ -12,7 +12,11 @@
   document.getElementById('igs-open-builder')?.addEventListener('click', () => {
     const box = document.getElementById('igs_builder');
     const pane = box?.closest('.edit-post-meta-boxes-main');
-    pane?.querySelector('button[aria-expanded="false"]')?.click();
+    if (box?.closest('[hidden]') && pane) {
+      const toggles = [...pane.querySelectorAll('button[aria-expanded="false"]')];
+      toggles.find((button) => !button.closest('[hidden]'))?.click();
+    }
+    box?.querySelector('.handlediv[aria-expanded="false"]')?.click();
     requestAnimationFrame(() => {
       box?.scrollIntoView({block:'start'});
       document.getElementById('igs-add-media')?.focus({preventScroll:true});
@@ -209,6 +213,30 @@
       schedule();
     });
   }
+  const mediaLimit = Number(config.mediaLimit);
+  const hasRoom = () => grid.childElementCount < mediaLimit;
+  function addMedia(id, url, alt) {
+    const item = document.createElement("div");
+    item.className = "igs-media-item";
+    item.draggable = true;
+    item.dataset.id = id;
+    const img = new Image();
+    img.src = url;
+    img.alt = alt;
+    img.draggable = false;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "igs-remove";
+    remove.textContent = "×";
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "igs_media_ids[]";
+    input.value = id;
+    item.append(img, remove, input);
+    decorate(item);
+    grid.append(item);
+  }
+
   $("#igs-add-media").on("click", () => {
     const frame = wp.media({
       title: t("selectImages", "Select gallery images"),
@@ -228,31 +256,45 @@
         .each((model) => {
           const attachment = model.toJSON(),
             id = String(attachment.id);
-          if (existing.has(id)) return;
+          if (existing.has(id) || !hasRoom()) return;
           existing.add(id);
-          const item = document.createElement("div");
-          item.className = "igs-media-item";
-          item.draggable = true;
-          item.dataset.id = id;
-          const img = new Image();
-          img.src = attachment.sizes?.thumbnail?.url || attachment.url;
-          img.alt = attachment.alt || attachment.title || "";
-          img.draggable = false;
-          const remove = document.createElement("button");
-          remove.type = "button";
-          remove.className = "igs-remove";
-          remove.textContent = "×";
-          const input = document.createElement("input");
-          input.type = "hidden";
-          input.name = "igs_media_ids[]";
-          input.value = id;
-          item.append(img, remove, input);
-          decorate(item);
-          grid.append(item);
+          addMedia(id, attachment.sizes?.thumbnail?.url || attachment.url, attachment.alt || attachment.title || "");
         });
       schedule();
     });
     frame.open();
+  });
+  const privateButton = document.getElementById("igs-add-private");
+  const privateInput = document.getElementById("igs-private-input");
+  const privateStatus = document.getElementById("igs-private-status");
+  privateButton?.addEventListener("click", () => privateInput.click());
+  privateInput?.addEventListener("change", async () => {
+    if (!privateInput.files.length) return;
+    privateButton.disabled = true;
+    privateStatus.textContent = t("uploadingPrivate", "Uploading private images…");
+    try {
+      for (const file of privateInput.files) {
+        if (!hasRoom()) throw new Error(t("mediaLimit", "The gallery has reached its image limit."));
+        const body = new FormData();
+        body.set("action", "igs_private_upload");
+        body.set("nonce", config.privateNonce);
+        body.set("gallery", builder.dataset.post);
+        body.set("image", file);
+        const response = await fetch(config.ajaxUrl, { method: "POST", body, credentials: "same-origin" });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(typeof result.data === "string" ? result.data : "");
+        }
+        addMedia(String(result.data.id), result.data.url, result.data.title);
+      }
+      privateStatus.textContent = t("privateSaved", "Update the gallery to include the uploaded images.");
+    } catch (error) {
+      privateStatus.textContent = error.message || t("privateError", "The private image upload failed.");
+    } finally {
+      privateInput.value = "";
+      privateButton.disabled = false;
+      schedule();
+    }
   });
   builder?.addEventListener("input", (e) => {
     const input = e.target;
