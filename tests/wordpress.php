@@ -24,6 +24,7 @@ wp_set_current_user( 1 );
 update_option( 'timezone_string', 'Asia/Tehran' );
 $registry = new IGS_Template_Registry();
 check( count( $registry->labels() ) === 10, 'all ten template modules are discoverable' );
+check( ! IGS_Analytics::enabled() && ! has_action( 'wp_ajax_igs_track' ) && ! has_action( 'wp_ajax_nopriv_igs_track' ), 'analytics defaults off and registers no tracking actions' );
 $sanitized = invoke( 'sanitize_settings', array( 'columns_desktop' => 0, 'gap' => -10, 'inertia' => 9, 'rotation_speed' => 'INF', 'page_height' => array( 1 ), 'template' => array( 'bad' ), 'accent' => 'url(javascript:alert(1))', 'show_counter' => '1' ) );
 check( 1 === $sanitized['columns_desktop'] && 0 === $sanitized['gap'] && .99 === $sanitized['inertia'], 'invalid numbers are clamped to safe bounds' );
 check( 'grid' === $sanitized['template'] && 480 === $sanitized['page_height'] && '#7c3aed' === $sanitized['accent'], 'malformed settings fall back without warnings' );
@@ -98,7 +99,7 @@ $owner = wp_insert_user( array( 'user_login' => 'igs_owner_' . wp_rand(), 'role'
 $own = gallery( array( 'post_author' => $owner ) ); wp_set_current_user( $owner );
 check( current_user_can( 'edit_post', $own ) && ! current_user_can( 'edit_post', $id ), 'mapped capabilities distinguish own galleries from others' );
 wp_set_current_user( 1 );
-$fixtures = array( 'templates' => array(), 'media' => $media, 'album' => $album );
+$fixtures = array( 'templates' => array(), 'media' => $media, 'album' => $album, 'private_storage' => (bool) IGS_Private_Media::directory() );
 foreach ( $registry->labels() as $template => $label ) {
     $gallery = gallery( array( 'post_title' => $label ) );
     update_post_meta( $gallery, '_igs_media_ids', $media );
@@ -111,6 +112,19 @@ foreach ( $registry->labels() as $template => $label ) {
 $locked = gallery( array( 'post_title' => 'Locked review', 'post_content' => 'Private gallery description secret' ) );
 update_post_meta( $locked, '_igs_media_ids', $media ); update_post_meta( $locked, '_igs_access', 'password' ); update_post_meta( $locked, '_igs_password_hash', wp_hash_password( 'review-pass' ) );
 $fixtures['locked'] = $locked;
+$paged = gallery( array( 'post_title' => 'Paged review' ) );
+$many = $media;
+while ( count( $many ) < 41 ) {
+    $many[] = wp_insert_attachment( array( 'post_title' => 'Pagination image ' . count( $many ), 'post_mime_type' => 'image/png', 'post_status' => 'inherit' ), $file );
+}
+update_post_meta( $paged, '_igs_media_ids', $many );
+$html = $plugin->render_gallery( $paged );
+check( substr_count( $html, '<figure' ) === 40 && str_contains( $html, 'rel="next"' ), 'large gallery renders one bounded page and a next link' );
+$_GET['igs_page'] = array( $paged => 2 );
+$html = $plugin->render_gallery( $paged );
+check( substr_count( $html, '<figure' ) === 1 && str_contains( $html, 'rel="prev"' ), 'second gallery page renders remaining images and a previous link' );
+unset( $_GET['igs_page'] );
+$fixtures['paged'] = $paged;
 $fixtures['logged_in'] = gallery( array( 'post_title' => 'Members review' ) );
 update_post_meta( $fixtures['logged_in'], '_igs_media_ids', $media ); update_post_meta( $fixtures['logged_in'], '_igs_access', 'logged_in' );
 $fixtures['private'] = gallery( array( 'post_status' => 'private' ) ); update_post_meta( $fixtures['private'], '_igs_media_ids', $media );

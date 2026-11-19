@@ -64,13 +64,17 @@ The 3D templates are intentionally self-contained and do not require a third-par
 
 All administrative writes are protected by WordPress nonces and capability checks. Gallery settings are sanitized before persistence and frontend output is escaped. Protected gallery passwords are stored using `wp_hash_password()` and validated with `wp_check_password()`. Successful access creates a short-lived HMAC-signed HttpOnly cookie; the password itself is never sent in a URL or barcode. Failed attempts are rate-limited without persisting a raw IP address.
 
-Gallery access controls protect rendered gallery output. Original WordPress upload URLs remain public; private file delivery requires separate protected storage/server rules. Full-page caches and CDNs must exclude protected gallery/album pages and pages embedding them. Purge existing cached pages after upgrading. Viewers must enter gallery passwords again after the 1.0.2 cookie-format change.
+For confidential images, create a directory outside the document root with access limited to the WordPress process. Set `IGS_PRIVATE_MEDIA_DIR` in `wp-config.php` to that directory's absolute path. Use **Upload private images** in the gallery builder and save the gallery with restricted visibility. Private uploads stay outside the Media Library. The delivery endpoint checks the gallery's password, login, expiration and post visibility on each request. Editors can open private previews for galleries they may edit. Back up this directory alongside the database.
 
-Analytics are aggregate event counters. MySQL/MariaDB named locks protect analytics and password-attempt updates from races. The plugin does not require third-party runtime JavaScript or CSS.
+Media Library files retain their public URLs. Re-upload confidential images from a trusted original using the private upload control, and remove the previously public versions and copies where appropriate. Exclude protected gallery and album pages, pages embedding them, and requests with `igs_private_image` from upstream page caches and CDNs. Purge existing cached pages after upgrading.
+
+New galleries can contain up to 250 images. The frontend displays 40 per page. Search and randomized ordering apply to the current page. Previously saved images above the new limit remain in the gallery and retain their original order after the editable portion.
+
+New analytics collection is off by default. Set `define( 'IGS_ENABLE_TRACKING', true );` in `wp-config.php` to opt in to aggregate counters, then visit a WordPress admin page to install the counter table. Historical counts remain visible. Analytics writes use an atomic database update. MySQL/MariaDB named locks still serialize password attempts.
 
 ## Development validation
 
-The source checkout includes `tests/README.md` with PHP integration, Chrome workflow and concurrent database checks. `python3 scripts/package.py` creates a deterministic installable ZIP in `dist/`, excluding development tools and tests. Version 1.0.2 was exercised with WordPress 6.6.2 and 7.1, MySQL 8.4 and PHP 8.5.8. Test coverage and deployment limits are recorded in the review report.
+The source checkout includes `tests/README.md` with PHP integration, Chromium workflow and concurrent database checks. `python3 scripts/package.py` creates a deterministic installable ZIP in `dist/`, excluding development tools and tests.
 
 ## Architecture
 

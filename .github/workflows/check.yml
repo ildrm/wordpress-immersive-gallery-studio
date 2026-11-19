@@ -1,0 +1,60 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  wordpress:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: gallery-test
+          MARIADB_DATABASE: gallery_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      IGS_WP_ROOT: /tmp/igs-test/wordpress
+      IGS_TEST_URL: http://127.0.0.1:8878
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: gd, mysqli
+          tools: wp-cli
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Create disposable WordPress site
+        run: |
+          mkdir -p "$IGS_WP_ROOT" /tmp/igs-test/private-media
+          chmod 700 /tmp/igs-test/private-media
+          wp_test() { wp --path="$IGS_WP_ROOT" "$@"; }
+          wp_test core download --version=6.9.4
+          wp_test config create --dbname=gallery_test --dbuser=root --dbpass=gallery-test --dbhost=127.0.0.1:3306 --skip-check --skip-salts
+          wp_test config set WP_ENVIRONMENT_TYPE local
+          wp_test config set WP_HTTP_BLOCK_EXTERNAL true --raw
+          wp_test config set DISABLE_WP_CRON true --raw
+          wp_test config set IGS_PRIVATE_MEDIA_DIR /tmp/igs-test/private-media
+          wp_test core install --url="$IGS_TEST_URL" --title="Gallery Test" --admin_user=reviewer --admin_password=igs-local-review-only --admin_email=reviewer@example.test --skip-email
+          ln -s "$GITHUB_WORKSPACE" "$IGS_WP_ROOT/wp-content/plugins/immersive-gallery-studio"
+          wp_test plugin activate immersive-gallery-studio
+          wp_test theme activate twentytwentyfive
+          php -S 127.0.0.1:8878 -t "$IGS_WP_ROOT" > /tmp/igs-server.log 2>&1 &
+          curl --retry 10 --retry-connrefused --fail --silent --show-error "$IGS_TEST_URL" > /dev/null
+      - run: php tests/wordpress.php
+      - run: node tests/browser.mjs
+      - run: node tests/interactions.mjs
+      - run: node tests/analytics.mjs
+      - run: python3 scripts/package.py

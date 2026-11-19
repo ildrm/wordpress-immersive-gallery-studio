@@ -4,7 +4,7 @@ Tags: gallery, image gallery, photo album, 3d gallery, carousel, masonry, photo 
 Requires at least: 6.6
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -15,7 +15,7 @@ Create responsive photo galleries and albums with Smart Grid, Masonry, Justified
 
 Includes hashed gallery passwords, signed access cookies, expiration, gallery barcodes, Media Library integration, drag ordering, fullscreen viewing, responsive controls and lightweight analytics.
 
-Access controls protect gallery output. Original WordPress media URLs retain their existing public visibility. Exclude protected gallery and album pages, and pages embedding them, from upstream page caches/CDNs.
+Configure a private storage directory and use the gallery editor's private upload control for confidential images. Media Library files retain public URLs. Analytics collection is off by default. Exclude protected gallery and album URLs, private image requests and pages embedding galleries from upstream page caches and CDNs.
 
 == Installation ==
 1. Upload and activate the plugin.
@@ -24,6 +24,11 @@ Access controls protect gallery output. Original WordPress media URLs retain the
 4. Publish or embed with [immersive_gallery id="123"].
 
 == Changelog ==
+
+= 1.0.3 =
+* Added gated delivery for images uploaded directly to private storage.
+* Made analytics opt-in and moved new event counts to atomic database counters.
+* Added pagination for large galleries and capped new galleries at 250 images.
 = 1.0.2 =
 * Fixed access checks, password cookie expiration, concurrent password attempt limits, timezone-aware expiration, protected album covers and REST content.
 * Fixed all interactive templates, search/counter synchronization, book pagination, carousel autoplay and pointer gestures.

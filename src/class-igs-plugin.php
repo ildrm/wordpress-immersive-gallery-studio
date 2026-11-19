@@ -3,6 +3,8 @@
 defined( 'ABSPATH' ) || exit;
 
 final class IGS_Plugin {
+    private const IMAGE_LIMIT = 250;
+    private const IMAGES_PER_PAGE = 40;
     private static ?self $instance = null;
     private array $rendered_gallery_ids = array();
     private ?IGS_Template_Registry $template_registry = null;
@@ -24,6 +26,7 @@ final class IGS_Plugin {
     public static function activate(): void {
         self::register_post_types_static();
         self::add_caps();
+        if ( IGS_Analytics::enabled() ) IGS_Analytics::install();
         flush_rewrite_rules();
     }
 
@@ -63,8 +66,18 @@ final class IGS_Plugin {
         add_filter( 'manage_igs_gallery_posts_columns', array( $this, 'gallery_columns' ) );
         add_action( 'manage_igs_gallery_posts_custom_column', array( $this, 'gallery_column_content' ), 10, 2 );
         add_action( 'rest_api_init', array( $this, 'register_rest' ) );
-        add_action( 'wp_ajax_igs_track', array( $this, 'track_ajax' ) );
-        add_action( 'wp_ajax_nopriv_igs_track', array( $this, 'track_ajax' ) );
+        if ( IGS_Analytics::enabled() ) {
+            add_action( 'admin_init', array( IGS_Analytics::class, 'install' ) );
+            add_action( 'wp_ajax_igs_track', array( $this, 'track_ajax' ) );
+            add_action( 'wp_ajax_nopriv_igs_track', array( $this, 'track_ajax' ) );
+        }
+        add_action( 'wp_ajax_igs_private_upload', array( IGS_Private_Media::class, 'upload_ajax' ) );
+        add_action( 'template_redirect', array( $this, 'serve_private_media' ), -1 );
+        add_action( 'before_delete_post', array( IGS_Private_Media::class, 'remember_file' ), 10, 2 );
+        add_action( 'deleted_post', array( IGS_Private_Media::class, 'delete_files' ), 10, 2 );
+        add_action( 'deleted_post', static function ( int $id, WP_Post $post ): void {
+            if ( 'igs_gallery' === $post->post_type ) IGS_Analytics::delete_gallery( $id );
+        }, 10, 2 );
         add_action( 'wp_ajax_igs_barcode', array( $this, 'barcode_ajax' ) );
         add_action( 'wp_footer', array( $this, 'print_late_styles' ), 5 );
         add_action( 'wp_ajax_igs_preview', array( $this, 'preview_ajax' ) );
@@ -76,6 +89,7 @@ final class IGS_Plugin {
     }
 
     public static function register_post_types_static(): void {
+        IGS_Private_Media::register();
         $gallery_caps = array(
             'edit_post' => 'edit_igs_gallery', 'read_post' => 'read_igs_gallery', 'delete_post' => 'delete_igs_gallery',
             'edit_posts' => 'edit_igs_galleries', 'edit_others_posts' => 'edit_others_igs_galleries',
@@ -125,15 +139,26 @@ final class IGS_Plugin {
 
     public function builder_box( WP_Post $post ): void {
         wp_nonce_field( 'igs_save_gallery', 'igs_nonce' );
-        $ids = array_map( 'absint', (array) get_post_meta( $post->ID, '_igs_media_ids', true ) );
+        $saved_media = (array) get_post_meta( $post->ID, '_igs_media_ids', true );
+        $ids = $this->image_ids( $saved_media, $post->ID );
         $settings = $this->sanitize_settings( (array) get_post_meta( $post->ID, '_igs_settings', true ) );
         $templates = $this->templates();
         ?>
         <div class="igs-builder" data-post="<?php echo esc_attr( $post->ID ); ?>">
             <div class="igs-builder__topbar">
                 <div><strong><?php esc_html_e( 'Visual Gallery Builder', 'immersive-gallery-studio' ); ?></strong><span><?php esc_html_e( 'Drag media to reorder. Changes are previewed instantly.', 'immersive-gallery-studio' ); ?></span></div>
-                <button type="button" class="button button-primary" id="igs-add-media"><?php esc_html_e( 'Add images', 'immersive-gallery-studio' ); ?></button>
+                <div>
+                    <button type="button" class="button button-primary" id="igs-add-media"><?php esc_html_e( 'Add Media Library images', 'immersive-gallery-studio' ); ?></button>
+                    <?php if ( IGS_Private_Media::directory() && current_user_can( 'upload_files' ) ) : ?>
+                        <button type="button" class="button" id="igs-add-private"><?php esc_html_e( 'Upload private images', 'immersive-gallery-studio' ); ?></button>
+                        <input type="file" id="igs-private-input" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" multiple hidden>
+                        <p id="igs-private-status" role="status"></p>
+                    <?php endif; ?>
+                </div>
             </div>
+            <?php if ( count( $saved_media ) > self::IMAGE_LIMIT ) : ?>
+                <p class="description"><?php echo esc_html( sprintf( __( 'The editor displays the first %d images. The remaining images stay in the saved gallery.', 'immersive-gallery-studio' ), self::IMAGE_LIMIT ) ); ?></p>
+            <?php endif; ?>
             <div class="igs-builder__body">
                 <aside class="igs-panel">
                     <label class="igs-label"><?php esc_html_e( 'Template', 'immersive-gallery-studio' ); ?></label>
@@ -183,7 +208,7 @@ final class IGS_Plugin {
                 <main class="igs-workspace">
                     <div class="igs-preview" id="igs-preview" aria-live="polite"><div class="igs-preview__empty"><?php esc_html_e( 'Add images to start building your gallery.', 'immersive-gallery-studio' ); ?></div></div>
                     <div class="igs-media-grid" id="igs-media-grid">
-                    <?php foreach ( $ids as $id ) : $url = wp_get_attachment_image_url( $id, 'thumbnail' ); if ( ! $url ) continue; ?>
+                    <?php foreach ( $ids as $id ) : $url = IGS_Private_Media::POST_TYPE === get_post_type( $id ) ? IGS_Private_Media::url( $id ) : wp_get_attachment_image_url( $id, 'thumbnail' ); if ( ! $url ) continue; ?>
                         <div class="igs-media-item" draggable="true" data-id="<?php echo esc_attr( $id ); ?>"><img src="<?php echo esc_url( $url ); ?>" alt=""><button type="button" class="igs-remove" aria-label="<?php esc_attr_e( 'Remove', 'immersive-gallery-studio' ); ?>">×</button><input type="hidden" name="igs_media_ids[]" value="<?php echo esc_attr( $id ); ?>"></div>
                     <?php endforeach; ?>
                     </div>
@@ -215,6 +240,7 @@ final class IGS_Plugin {
             <option value="password" <?php selected( $access, 'password' ); ?>><?php esc_html_e( 'Password protected', 'immersive-gallery-studio' ); ?></option>
             <option value="logged_in" <?php selected( $access, 'logged_in' ); ?>><?php esc_html_e( 'Logged-in users', 'immersive-gallery-studio' ); ?></option>
         </select></label></p>
+        <p class="description"><?php esc_html_e( 'Media Library files have public URLs. Use Upload private images for confidential files, then choose restricted visibility before sharing.', 'immersive-gallery-studio' ); ?></p>
         <p><label><strong><?php esc_html_e( 'Gallery password', 'immersive-gallery-studio' ); ?></strong><input class="widefat" type="password" name="igs_gallery_password" value="" autocomplete="new-password" placeholder="<?php esc_attr_e( 'Leave blank to keep existing password', 'immersive-gallery-studio' ); ?>"></label></p>
         <p><label><input type="checkbox" name="igs_clear_password" value="1"> <?php esc_html_e( 'Remove saved gallery password', 'immersive-gallery-studio' ); ?></label></p>
         <p class="description"><?php esc_html_e( 'Passwords are stored as one-way hashes. They are never placed in gallery URLs or barcodes.', 'immersive-gallery-studio' ); ?></p>
@@ -240,16 +266,18 @@ final class IGS_Plugin {
     public function analytics_box( WP_Post $post ): void {
         if ( ! current_user_can( 'view_igs_analytics' ) || ! current_user_can( 'edit_post', $post->ID ) ) return;
         $labels = array(
-            'views' => __( 'Gallery views', 'immersive-gallery-studio' ),
-            'opens' => __( 'Viewer opens', 'immersive-gallery-studio' ),
-            'downloads' => __( 'Download clicks', 'immersive-gallery-studio' ),
-            'interactions' => __( 'Navigation and gestures', 'immersive-gallery-studio' ),
+            'view' => __( 'Gallery views', 'immersive-gallery-studio' ),
+            'open' => __( 'Viewer opens', 'immersive-gallery-studio' ),
+            'download' => __( 'Download clicks', 'immersive-gallery-studio' ),
+            'interaction' => __( 'Navigation and gestures', 'immersive-gallery-studio' ),
         );
+        $counts = IGS_Analytics::counts( $post->ID );
         echo '<dl>';
         foreach ( $labels as $key => $label ) {
-            echo '<dt>' . esc_html( $label ) . '</dt><dd><strong>' . esc_html( number_format_i18n( (int) get_post_meta( $post->ID, '_igs_' . $key, true ) ) ) . '</strong></dd>';
+            echo '<dt>' . esc_html( $label ) . '</dt><dd><strong>' . esc_html( number_format_i18n( $counts[ $key ] ) ) . '</strong></dd>';
         }
         echo '</dl><p class="description">' . esc_html__( 'Aggregate events, including repeat visits. Preview activity is excluded.', 'immersive-gallery-studio' ) . '</p>';
+        if ( ! IGS_Analytics::enabled() ) echo '<p>' . esc_html__( 'Collection is disabled. Existing counts are shown above.', 'immersive-gallery-studio' ) . '</p>';
     }
 
     public function save_album( int $post_id, WP_Post $post ): void {
@@ -266,9 +294,9 @@ final class IGS_Plugin {
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
         if ( 'igs_gallery' !== $post->post_type || wp_is_post_revision( $post_id ) || ! current_user_can( 'edit_post', $post_id ) ) return;
 
-        $ids = isset( $_POST['igs_media_ids'] ) ? array_values( array_unique( array_filter( array_map( 'absint', (array) wp_unslash( $_POST['igs_media_ids'] ) ) ) ) ) : array();
-        $ids = $this->image_ids( $ids );
-        update_post_meta( $post_id, '_igs_media_ids', $ids );
+        $ids = $this->image_ids( (array) ( $_POST['igs_media_ids'] ?? array() ), $post_id );
+        $legacy = array_slice( (array) get_post_meta( $post_id, '_igs_media_ids', true ), self::IMAGE_LIMIT );
+        update_post_meta( $post_id, '_igs_media_ids', array_values( array_unique( array_merge( $ids, $legacy ), SORT_REGULAR ) ) );
 
         $raw = isset( $_POST['igs_settings'] ) ? (array) wp_unslash( $_POST['igs_settings'] ) : array();
         update_post_meta( $post_id, '_igs_settings', $this->sanitize_settings( $raw ) );
@@ -296,14 +324,19 @@ final class IGS_Plugin {
         wp_enqueue_media();
         wp_enqueue_style( 'igs-admin', IGS_URL . 'assets/css/admin.css', array(), IGS_VERSION );
         wp_enqueue_script( 'igs-admin', IGS_URL . 'assets/js/admin.js', array( 'jquery' ), IGS_VERSION, true );
-        wp_localize_script( 'igs-admin', 'IGSAdmin', array( 'barcodeNonce' => wp_create_nonce( 'igs_barcode' ), 'previewNonce' => wp_create_nonce( 'igs_preview' ), 'ajaxUrl' => admin_url( 'admin-ajax.php' ), 'strings' => $this->ui_strings() ) );
+        wp_localize_script( 'igs-admin', 'IGSAdmin', array( 'barcodeNonce' => wp_create_nonce( 'igs_barcode' ), 'previewNonce' => wp_create_nonce( 'igs_preview' ), 'privateNonce' => wp_create_nonce( 'igs_private_upload' ), 'mediaLimit' => self::IMAGE_LIMIT, 'ajaxUrl' => admin_url( 'admin-ajax.php' ), 'strings' => $this->ui_strings() ) );
     }
 
     public function register_front_assets(): void {
         if ( wp_script_is( 'igs-front', 'registered' ) ) return;
         wp_register_style( 'igs-front', IGS_URL . 'assets/css/frontend.css', array(), IGS_VERSION );
         wp_register_script( 'igs-front', IGS_URL . 'assets/js/frontend.js', array(), IGS_VERSION, true );
-        wp_localize_script( 'igs-front', 'IGSFront', array( 'ajaxUrl' => admin_url( 'admin-ajax.php' ), 'nonce' => wp_create_nonce( 'igs_track' ), 'strings' => $this->ui_strings() ) );
+        $data = array( 'trackingEnabled' => IGS_Analytics::enabled() ? '1' : '0', 'strings' => $this->ui_strings() );
+        if ( IGS_Analytics::enabled() ) {
+            $data['ajaxUrl'] = admin_url( 'admin-ajax.php' );
+            $data['nonce'] = wp_create_nonce( 'igs_track' );
+        }
+        wp_localize_script( 'igs-front', 'IGSFront', $data );
     }
 
     private function templates(): array {
@@ -405,12 +438,17 @@ final class IGS_Plugin {
         return true;
     }
 
-    private function image_ids( array $ids ): array {
-        $ids = array_values( array_unique( array_filter( array_map( static fn( $id ): int => is_scalar( $id ) ? absint( $id ) : 0, $ids ) ) ) );
+    private function image_ids( array $ids, int $gallery ): array {
+        $ids = array_values( array_unique( array_filter( array_map( static fn( $id ): int => is_scalar( $id ) ? absint( $id ) : 0, array_slice( $ids, 0, self::IMAGE_LIMIT ) ) ) ) );
         if ( ! $ids ) return array();
         // Prime attachment and metadata caches before rendering image derivatives.
-        $attachments = get_posts( array( 'post_type' => 'attachment', 'post_status' => 'inherit', 'post__in' => $ids, 'posts_per_page' => count( $ids ), 'orderby' => 'post__in', 'update_post_term_cache' => false ) );
-        return array_values( array_map( static fn( WP_Post $post ): int => $post->ID, array_filter( $attachments, static fn( WP_Post $post ): bool => wp_attachment_is_image( $post ) ) ) );
+        $attachments = get_posts( array( 'post_type' => array( 'attachment', IGS_Private_Media::POST_TYPE ), 'post_status' => array( 'inherit', 'private' ), 'post__in' => $ids, 'posts_per_page' => count( $ids ), 'orderby' => 'post__in', 'update_post_term_cache' => false ) );
+        $images = array_filter( $attachments, static function ( WP_Post $post ) use ( $gallery ): bool {
+            return 'attachment' === $post->post_type
+                ? 'inherit' === $post->post_status && wp_attachment_is_image( $post )
+                : 'private' === $post->post_status && $gallery === $post->post_parent && (bool) IGS_Private_Media::describe( $post->ID );
+        } );
+        return array_values( array_map( static fn( WP_Post $post ): int => $post->ID, $images ) );
     }
 
     private function published_access( int $id, string $type ): bool {
@@ -421,6 +459,43 @@ final class IGS_Plugin {
     private function content_access( int $id ): bool {
         return $this->can_view( $id ) && ! post_password_required( $id ) &&
             ( 'password' !== get_post_meta( $id, '_igs_access', true ) || $this->has_password_access( $id ) );
+    }
+
+    private function is_restricted( WP_Post $post ): bool {
+        return 'private' === $post->post_status || '' !== $post->post_password
+            || in_array( get_post_meta( $post->ID, '_igs_access', true ), array( 'password', 'logged_in' ), true );
+    }
+
+    public function serve_private_media(): void {
+        if ( ! isset( $_GET['igs_private_image'] ) ) return;
+        $this->no_cache();
+        $method = $_SERVER['REQUEST_METHOD'] ?? '';
+        if ( ! in_array( $method, array( 'GET', 'HEAD' ), true ) ) {
+            status_header( 405 );
+            header( 'Allow: GET, HEAD' );
+            exit;
+        }
+        $id = is_scalar( $_GET['igs_private_image'] ) ? absint( $_GET['igs_private_image'] ) : 0;
+        $media = $id ? get_post( $id ) : null;
+        $gallery = $media && IGS_Private_Media::POST_TYPE === $media->post_type ? get_post( $media->post_parent ) : null;
+        $permitted = $gallery && 'igs_gallery' === $gallery->post_type && 'private' === $media->post_status
+            && ( current_user_can( 'edit_post', $gallery->ID )
+                || ( $this->published_access( $gallery->ID, 'igs_gallery' ) && $this->is_restricted( $gallery )
+                    && $this->content_access( $gallery->ID )
+                    && in_array( $id, (array) get_post_meta( $gallery->ID, '_igs_media_ids', true ), true ) ) );
+        $data = $permitted ? IGS_Private_Media::describe( $id ) : array();
+        $path = $data ? IGS_Private_Media::file( $data ) : '';
+        if ( ! $path ) {
+            status_header( 404 );
+            exit;
+        }
+        status_header( 200 );
+        header( 'Content-Type: ' . $data['mime'] );
+        header( 'Content-Length: ' . filesize( $path ) );
+        header( 'X-Content-Type-Options: nosniff' );
+        header( 'Cross-Origin-Resource-Policy: same-origin' );
+        if ( 'GET' === $method ) readfile( $path );
+        exit;
     }
 
     public function protect_content( string $content ): string {
@@ -435,6 +510,10 @@ final class IGS_Plugin {
     private function ui_strings(): array {
         return array(
             'viewer' => __( 'Image viewer', 'immersive-gallery-studio' ),
+            'uploadingPrivate' => __( 'Uploading private images…', 'immersive-gallery-studio' ),
+            'privateSaved' => __( 'Update the gallery to include the uploaded images.', 'immersive-gallery-studio' ),
+            'privateError' => __( 'The private image upload failed.', 'immersive-gallery-studio' ),
+            'mediaLimit' => __( 'The gallery has reached its image limit.', 'immersive-gallery-studio' ),
             'download' => __( 'Download', 'immersive-gallery-studio' ),
             'close' => __( 'Close', 'immersive-gallery-studio' ),
             'play' => __( 'Play', 'immersive-gallery-studio' ),
@@ -502,7 +581,7 @@ final class IGS_Plugin {
         $id = isset( $_POST['gallery'] ) && is_scalar( $_POST['gallery'] ) ? absint( $_POST['gallery'] ) : 0;
         if ( 'igs_gallery' !== get_post_type( $id ) || ! current_user_can( 'edit_post', $id ) ) wp_send_json_error( null, 403 );
         $preview = array(
-            'media' => $this->image_ids( (array) ( $_POST['media'] ?? array() ) ),
+            'media' => $this->image_ids( (array) ( $_POST['media'] ?? array() ), $id ),
             'settings' => $this->sanitize_settings( (array) wp_unslash( $_POST['settings'] ?? array() ) ),
         );
         $template = $this->template_registry()->get( $preview['settings']['template'] );
@@ -525,12 +604,28 @@ final class IGS_Plugin {
         $access = get_post_meta( $id, '_igs_access', true ) ?: 'public';
         if ( ! $preview && 'password' === $access && ! $this->has_password_access( $id ) ) return $this->password_form( $id );
 
-        $ids = $this->image_ids( $preview['media'] ?? (array) get_post_meta( $id, '_igs_media_ids', true ) );
-        if ( ! $ids ) return '<div class="igs-notice">' . esc_html__( 'This gallery has no media yet.', 'immersive-gallery-studio' ) . '</div>';
+        $selected = $preview['media'] ?? (array) get_post_meta( $id, '_igs_media_ids', true );
+        $pages = $preview ? 1 : max( 1, (int) ceil( count( $selected ) / self::IMAGES_PER_PAGE ) );
+        $requested = is_array( $_GET['igs_page'] ?? null ) ? ( $_GET['igs_page'][ $id ] ?? 1 ) : 1;
+        $page = $preview || ! is_scalar( $requested ) ? 1 : min( $pages, max( 1, absint( $requested ) ) );
+        $ids = $this->image_ids( array_slice( $selected, ( $page - 1 ) * self::IMAGES_PER_PAGE, self::IMAGES_PER_PAGE ), $id );
+        if ( ! $ids ) return '<div class="igs-notice">' . esc_html__( 'This gallery has no media on this page.', 'immersive-gallery-studio' ) . '</div>' . $this->page_navigation( $id, $page, $pages );
         $settings = $this->sanitize_settings( $preview['settings'] ?? (array) get_post_meta( $id, '_igs_settings', true ) );
         if ( ! empty( $settings['randomize'] ) ) shuffle( $ids );
         $items = array();
         foreach ( $ids as $attachment_id ) {
+            if ( IGS_Private_Media::POST_TYPE === get_post_type( $attachment_id ) ) {
+                if ( ! $preview && ! $this->is_restricted( $post ) ) continue;
+                $data = IGS_Private_Media::describe( $attachment_id );
+                if ( ! $data ) continue;
+                $url = IGS_Private_Media::url( $attachment_id );
+                $items[] = array(
+                    'id' => $attachment_id, 'src' => $url, 'full' => $url, 'thumb' => $url, 'srcset' => '',
+                    'alt' => get_the_title( $attachment_id ), 'title' => get_the_title( $attachment_id ), 'caption' => '',
+                    'width' => (int) $data['width'], 'height' => (int) $data['height'],
+                );
+                continue;
+            }
             $full = wp_get_attachment_image_url( $attachment_id, 'full' );
             $large = wp_get_attachment_image_url( $attachment_id, 'large' );
             if ( ! $full || ! $large ) continue;
@@ -545,7 +640,7 @@ final class IGS_Plugin {
                 'height' => (int) ( $metadata['height'] ?? 0 ),
             );
         }
-        if ( ! $items ) return '';
+        if ( ! $items ) return $this->page_navigation( $id, $page, $pages );
         wp_enqueue_style( 'igs-front' );
         wp_enqueue_script( 'igs-front' );
         $this->template_registry()->enqueue( (string) $settings['template'] );
@@ -571,8 +666,25 @@ final class IGS_Plugin {
             ?>
             <?php if ( ! empty( $settings['show_counter'] ) ) : ?><div class="igs-counter" aria-live="polite">1 / <?php echo count( $items ); ?></div><?php endif; ?>
         </section>
+        <?php echo $this->page_navigation( $id, $page, $pages ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
         <?php
         return (string) ob_get_clean();
+    }
+
+    private function page_navigation( int $id, int $page, int $pages ): string {
+        if ( $pages < 2 ) return '';
+        $current = isset( $_GET['igs_page'] ) && is_array( $_GET['igs_page'] ) ? array_map( 'absint', array_filter( $_GET['igs_page'], 'is_scalar' ) ) : array();
+        $html = '<nav class="igs-pagination" aria-label="' . esc_attr__( 'Gallery pages', 'immersive-gallery-studio' ) . '">';
+        if ( $page > 1 ) {
+            $current[ $id ] = $page - 1;
+            $html .= '<a rel="prev" href="' . esc_url( add_query_arg( 'igs_page', $current ) ) . '">' . esc_html__( 'Previous images', 'immersive-gallery-studio' ) . '</a> ';
+        }
+        $html .= '<span>' . esc_html( sprintf( __( 'Page %1$d of %2$d', 'immersive-gallery-studio' ), $page, $pages ) ) . '</span>';
+        if ( $page < $pages ) {
+            $current[ $id ] = $page + 1;
+            $html .= ' <a rel="next" href="' . esc_url( add_query_arg( 'igs_page', $current ) ) . '">' . esc_html__( 'Next images', 'immersive-gallery-studio' ) . '</a>';
+        }
+        return $html . '</nav>';
     }
 
     private function render_album( int $id ): string {
@@ -612,7 +724,7 @@ final class IGS_Plugin {
         if ( 'igs_template' === $column ) { $s = $this->sanitize_settings( (array) get_post_meta( $post_id, '_igs_settings', true ) ); echo esc_html( $this->templates()[ $s['template'] ] ?? $s['template'] ); }
         if ( 'igs_images' === $column ) echo esc_html( count( (array) get_post_meta( $post_id, '_igs_media_ids', true ) ) );
         if ( 'igs_access' === $column ) echo esc_html( ucfirst( str_replace( '_', ' ', get_post_meta( $post_id, '_igs_access', true ) ?: 'public' ) ) );
-        if ( 'igs_views' === $column && current_user_can( 'view_igs_analytics' ) ) echo esc_html( number_format_i18n( (int) get_post_meta( $post_id, '_igs_views', true ) ) );
+        if ( 'igs_views' === $column && current_user_can( 'view_igs_analytics' ) ) echo esc_html( number_format_i18n( IGS_Analytics::counts( $post_id )['view'] ) );
         if ( 'igs_shortcode' === $column ) echo '<code>[immersive_gallery id=&quot;' . esc_html( $post_id ) . '&quot;]</code>';
     }
 
@@ -630,21 +742,12 @@ final class IGS_Plugin {
     }
 
     public function track_ajax(): void {
+        if ( ! IGS_Analytics::enabled() ) wp_send_json_error( null, 403 );
         check_ajax_referer( 'igs_track', 'nonce' );
-        $id = isset( $_POST['gallery'] ) ? absint( $_POST['gallery'] ) : 0;
-        $event = isset( $_POST['event'] ) ? sanitize_key( wp_unslash( $_POST['event'] ) ) : 'view';
+        $id = isset( $_POST['gallery'] ) && is_scalar( $_POST['gallery'] ) ? absint( $_POST['gallery'] ) : 0;
+        $event = isset( $_POST['event'] ) && is_string( $_POST['event'] ) ? sanitize_key( wp_unslash( $_POST['event'] ) ) : 'view';
         if ( ! $this->published_access( $id, 'igs_gallery' ) || ! $this->content_access( $id ) || ! in_array( $event, array( 'view','open','download','interaction' ), true ) ) wp_send_json_error( null, 403 );
-        $key = '_igs_' . $event . 's'; if ( 'view' === $event ) $key = '_igs_views';
-        // Serialize the increment so simultaneous requests cannot lose events.
-        global $wpdb;
-        $lock = 'igs_count_' . md5( DB_NAME . '|' . $wpdb->prefix . '|' . $id );
-        if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 2)', $lock ) ) ) wp_send_json_error( null, 503 );
-        try {
-            wp_cache_delete( $id, 'post_meta' );
-            update_post_meta( $id, $key, (int) get_post_meta( $id, $key, true ) + 1 );
-        } finally {
-            $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );
-        }
+        if ( ! IGS_Analytics::increment( $id, $event ) ) wp_send_json_error( null, 503 );
         wp_send_json_success();
     }
 

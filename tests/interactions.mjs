@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
-import { createRequire } from "node:module";
-const require = createRequire(
-  `${process.env.IGS_TEST_TOOLS || "/private/tmp/igs-review-tools"}/package.json`,
-);
-const { chromium } = require("playwright");
+import { chromium } from "playwright";
 const fixtures = JSON.parse(
   fs.readFileSync(`${os.tmpdir()}/igs-review-fixtures.json`, "utf8"),
 );
 const base = process.env.IGS_TEST_URL || "http://127.0.0.1:8878";
-const browser = await chromium.launch({ channel: "chrome", headless: true });
+const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
@@ -88,17 +84,16 @@ try {
   await page.locator("#user_login").fill("reviewer");
   await page.locator("#user_pass").fill("igs-local-review-only");
   await page.locator("#wp-submit").click();
+  await page.waitForURL(/wp-admin/);
+  await page.addLocatorHandler(page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).first(), (close) => close.click());
   await page.goto(
     `${base}/wp-admin/post.php?post=${fixtures.templates.grid}&action=edit`,
   );
+  await page.locator("#igs_builder").waitFor({ state: "attached" });
   if (!(await page.locator("#igs_builder").isVisible())) {
-    const pane = page.getByRole("button", { name: "Open visual builder", exact: true });
-    if (await pane.isVisible()) await pane.click();
+    await page.getByRole("button", { name: "Open visual builder", exact: true }).click();
   }
   await page.locator("#igs_builder").waitFor();
-  // Dismiss the editor welcome modal, if WordPress shows it on this fresh profile.
-  const close = page.getByRole("button", { name: "Close", exact: true });
-  if (await close.isVisible()) await close.click();
   await page
     .locator(".igs-template-card")
     .filter({ hasText: "3D Photo Book" })
